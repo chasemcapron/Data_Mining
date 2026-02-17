@@ -1,0 +1,16 @@
+Name	Age
+William.McKinley	58
+Theodore.Roosevelt	60
+William.Taft	72
+Woodrow.Wilson	67
+Warren.Harding	57
+Calvin.Coolidge	60
+Herbert.Hoover	90
+Franklin.Roosevelt	63
+Harry.Truman	88
+Dwight.Eisenhower	78
+John.Kennedy	46
+Lyndon.Johnson	64
+Richard.Nixon	81
+Gerald.Ford	93
+Ronald.Reagan	93
