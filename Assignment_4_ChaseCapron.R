@@ -88,7 +88,6 @@ results2 <- data.frame(actual=test[ 'Sex'], predicted=abalone.predict)
 table(results2)
 
 # Calculate overall accuracy
-# Ensure you use 'results2' for both the dataframe and the columns
 results2$correct <- ifelse(results2$Sex == results2$predicted, 1, 0)
 sum(results2$correct) / nrow(results2)
 # 0.5088132
