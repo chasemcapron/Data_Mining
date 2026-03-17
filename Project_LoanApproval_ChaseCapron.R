@@ -1,0 +1,305 @@
+# ==============================================================================
+# ISTM 650 Project Stage 1: The 12th MineRs
+# Dataset: Synthetic Data for binary classification on Loan Approval (Kaggle)
+# Tasks: EDA, Decision Tree (C5.0) Iterative Testing, Financial Impact
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Install and Load Required Packages
+# ------------------------------------------------------------------------------
+library(C50)
+
+# ------------------------------------------------------------------------------
+# 2. Set Working Directory & Data Loading
+# ------------------------------------------------------------------------------
+setwd("C:/Users/chase/OneDrive/Documents/Desktop Materials/Classes/Spring '26/Bus Data Mining/R Files")
+
+loan_data <- read.csv('loan_data.csv', stringsAsFactors = TRUE)
+loan_data$loan_status <- factor(loan_data$loan_status, levels = c(0, 1), labels = c("Rejected", "Approved"))
+loan_data <- loan_data[complete.cases(loan_data),]
+
+# ------------------------------------------------------------------------------
+# 3. Data Exploration & Visualization (EDA)
+# ------------------------------------------------------------------------------
+png("1_Distribution_of_Loan_Status.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+plot(loan_data$loan_status, main = "Distribution of Loan Status", xlab = "Status", ylab = "Count", col = c("#ff6363", "#22c3ab"))
+dev.off()
+
+png("2_Loan_Amount_by_Status.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+boxplot(loan_data$loan_amnt ~ loan_data$loan_status, main = "Loan Amount by Approval Status", xlab = "Loan Status", ylab = "Loan Amount ($)", col = c("#ff6363", "#22c3ab"))
+dev.off()
+
+png("3_Credit_History_Length.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+boxplot(loan_data$cb_person_cred_hist_length ~ loan_data$loan_status, main = "Credit History Length vs. Loan Status", xlab = "Loan Status", ylab = "Credit History Length (Years)", col = c("#ff6363", "#22c3ab"))
+dev.off()
+
+png("4_Loan_Percent_of_Income.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+boxplot(loan_data$loan_percent_income ~ loan_data$loan_status, main = "Loan Percent of Income by Approval Status", xlab = "Loan Status", ylab = "Loan Amount as % of Total Income", col = c("#ff6363", "#22c3ab"))
+dev.off()
+
+# ------------------------------------------------------------------------------
+# 4. REQUIRED ANALYSIS: Iterative Decision Tree Testing & Parameter Tuning
+# ------------------------------------------------------------------------------
+# Global dataframe to store experiment results for the visual table
+results_log <- data.frame(Split=character(), minCases=numeric(), CF=numeric(), Avg_Acc=numeric(), Best_Acc=numeric(), stringsAsFactors=FALSE)
+
+run_dt_experiments <- function(data, split_ratio, min_cases = 2, cf = 0.25, runs = 10) {
+  accuracies <- numeric(runs)
+  best_acc <- 0
+  best_cm <- NULL
+  
+  for(i in 1:runs) {
+    sample_size <- floor(split_ratio * nrow(data))
+    train_ind <- sample(nrow(data), size = sample_size, replace = FALSE)
+    train <- data[train_ind, ]
+    test <- data[-train_ind, ]
+    predictors <- setdiff(names(train), "loan_status")
+    
+    model <- C5.0(x = train[, predictors], y = train$loan_status, control = C5.0Control(minCases = min_cases, CF = cf))
+    preds <- predict(model, test)
+    acc <- sum(preds == test$loan_status) / nrow(test)
+    accuracies[i] <- acc
+    
+    if(acc > best_acc) {
+      best_acc <- acc
+      best_cm <- table(Actual = test$loan_status, Predicted = preds)
+    }
+  }
+  
+  # Log results to global dataframe
+  results_log <<- rbind(results_log, data.frame(
+    Split = paste0(split_ratio*100, "/", (1-split_ratio)*100),
+    minCases = min_cases, CF = cf,
+    Avg_Acc = round(mean(accuracies) * 100, 2), Best_Acc = round(best_acc * 100, 2)
+  ))
+  
+  cat(sprintf("\n=== Split: %s%% Train | minCases: %s | CF: %s ===\n", split_ratio*100, min_cases, cf))
+  cat("Average Overall Accuracy (", runs, " runs): ", mean(accuracies), "\n", sep="")
+  cat("Best Run Accuracy: ", best_acc, "\n", sep="")
+  print("Best Run Confusion Matrix:")
+  print(best_cm)
+  cat("----------------------------------------------------------\n")
+}
+
+cat("\n\n*** REQUIREMENT 1: INITIAL MODEL (80-20 SPLIT) ***")
+run_dt_experiments(loan_data, split_ratio = 0.80)
+
+cat("\n\n*** REQUIREMENT 2: VARY TRAINING-TEST RATIOS ***")
+run_dt_experiments(loan_data, split_ratio = 0.70)
+run_dt_experiments(loan_data, split_ratio = 0.90)
+
+cat("\n\n*** REQUIREMENT 3: COMPREHENSIVE PARAMETER TUNING (All Splits) ***")
+# We test all parameter variations across every single split to ensure a perfectly fair comparison!
+splits_to_test <- c(0.80, 0.70, 0.90)
+
+for (split_val in splits_to_test) {
+  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 20)
+  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 50)
+  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 100)
+  run_dt_experiments(loan_data, split_ratio = split_val, cf = 0.1)
+  run_dt_experiments(loan_data, split_ratio = split_val, cf = 0.5)
+}
+
+# ==============================================================================
+# 4b. PRESENTATION SLIDE EXPORT: Best Runs Summary Table
+# ==============================================================================
+# Find the highest peak run for each of the three splits
+best_70 <- results_log[results_log$Split == "70/30", ][which.max(results_log[results_log$Split == "70/30", "Best_Acc"]), ]
+best_80 <- results_log[results_log$Split == "80/20", ][which.max(results_log[results_log$Split == "80/20", "Best_Acc"]), ]
+best_90 <- results_log[results_log$Split == "90/10", ][which.max(results_log[results_log$Split == "90/10", "Best_Acc"]), ]
+
+plot_data <- rbind(best_90, best_80, best_70)
+plot_data <- plot_data[order(-plot_data$Best_Acc), ] # Sort by Highest Peak Accuracy
+
+png("9_Best_Run_Summary.png", bg = "#3c414c", width = 900, height = 350, res = 120)
+par(mar = c(1, 1, 4, 1), bg = "#3c414c")
+plot(c(0, 10), c(0, 5), type = "n", axes = FALSE, xlab = "", ylab = "", 
+     main = "Top Peak Configurations by Train/Test Split", col.main = "#ffffff", cex.main = 1.8)
+
+cols <- c(1, 3, 5, 7, 9)
+headers <- c("Split Ratio", "minCases", "CF", "10-Run Avg", "Peak Run")
+text(cols, 4.5, headers, col = "#22c3ab", font = 2, cex = 1.2)
+segments(0, 4.2, 10, 4.2, col = "#ffffff", lwd = 2)
+
+y_pos <- c(3.2, 2.0, 0.8)
+for(i in 1:3) {
+  text(cols[1], y_pos[i], plot_data$Split[i], col = "#ffffff", cex = 1.3)
+  text(cols[2], y_pos[i], plot_data$minCases[i], col = "#ffffff", cex = 1.3)
+  text(cols[3], y_pos[i], plot_data$CF[i], col = "#ffffff", cex = 1.3)
+  text(cols[4], y_pos[i], paste0(plot_data$Avg_Acc[i], "%"), col = "#ffffff", cex = 1.3)
+  # Highlight the absolute best peak run overall in red
+  text(cols[5], y_pos[i], paste0(plot_data$Best_Acc[i], "%"), col = ifelse(i==1, "#ff6363", "#ffffff"), font = ifelse(i==1, 2, 1), cex = 1.3)
+}
+dev.off()
+
+
+# ------------------------------------------------------------------------------
+# 5. Final Model Comparison: 90/10, 80/20, and 70/30 Splits
+# ------------------------------------------------------------------------------
+cat("\n=======================================================================\n")
+cat("FINAL MODEL COMPARISON: 90/10, 80/20, AND 70/30 SPLITS\n")
+cat("=======================================================================\n\n")
+
+# Helper function to export visually appealing confusion matrices
+export_cm_plot <- function(cm, title, filename) {
+  png(filename, bg = "#3c414c", width = 800, height = 600, res = 120)
+  par(mar = c(5, 5, 4, 2), col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+  plot(c(0, 2), c(0, 2), type = "n", axes = FALSE, xlab = "Predicted Status", ylab = "Actual Status", main = title, cex.main = 1.5, cex.lab = 1.2)
+  axis(1, at = c(0.5, 1.5), labels = c("Rejected", "Approved"), tick = FALSE, cex.axis = 1.2)
+  axis(2, at = c(0.5, 1.5), labels = c("Approved", "Rejected"), tick = FALSE, cex.axis = 1.2)
+  
+  rect(0, 1, 1, 2, col = "#22c3ab", border = "#3c414c", lwd = 4)
+  text(0.5, 1.6, cm[1,1], col = "#ffffff", cex = 2.5, font = 2)
+  text(0.5, 1.3, "True Negative\n(Correct Rejection)", col = "#ffffff", cex = 1.1)
+  
+  rect(1, 1, 2, 2, col = "#ff6363", border = "#3c414c", lwd = 4)
+  text(1.5, 1.6, cm[1,2], col = "#ffffff", cex = 2.5, font = 2)
+  text(1.5, 1.3, "False Positive\n(Money Lost)", col = "#ffffff", cex = 1.1)
+  
+  rect(0, 0, 1, 1, col = "#ff6363", border = "#3c414c", lwd = 4)
+  text(0.5, 0.6, cm[2,1], col = "#ffffff", cex = 2.5, font = 2)
+  text(0.5, 0.3, "False Negative\n(Missed Revenue)", col = "#ffffff", cex = 1.1)
+  
+  rect(1, 0, 2, 1, col = "#22c3ab", border = "#3c414c", lwd = 4)
+  text(1.5, 0.6, cm[2,2], col = "#ffffff", cex = 2.5, font = 2)
+  text(1.5, 0.3, "True Positive\n(Correct Approval)", col = "#ffffff", cex = 1.1)
+  dev.off()
+}
+
+# --- 90/10 SPLIT MODEL ---
+set.seed(650)
+sample_size_90 <- floor(0.9 * nrow(loan_data))
+train_index_90 <- sample(nrow(loan_data), size = sample_size_90, replace = FALSE)
+train_90 <- loan_data[train_index_90,]
+test_90 <- loan_data[-train_index_90,]
+
+predictors <- setdiff(names(train_90), "loan_status")
+dt_model_90 <- C5.0(x = train_90[, predictors], y = train_90$loan_status)
+dt_pred_90 <- predict(dt_model_90, newdata = test_90)
+dt_results_90 <- data.frame(actual = test_90[, 'loan_status'], predicted = dt_pred_90)
+
+print("--- 90/10 Decision Tree Confusion Matrix ---")
+cm_90 <- table(dt_results_90)
+print(cm_90)
+export_cm_plot(cm_90, "90/10 Split: Confusion Matrix", "5_CM_90_10_Split.png")
+
+dt_results_90$correct <- ifelse(dt_results_90$actual == dt_results_90$predicted, 1, 0)
+dt_accuracy_90 <- sum(dt_results_90$correct) / nrow(dt_results_90)
+cat("90/10 Decision Tree Accuracy: ", dt_accuracy_90, "\n\n")
+
+# --- 80/20 BASELINE MODEL ---
+set.seed(650)
+sample_size_80 <- floor(0.8 * nrow(loan_data))
+train_index_80 <- sample(nrow(loan_data), size = sample_size_80, replace = FALSE)
+train_80 <- loan_data[train_index_80,]
+test_80 <- loan_data[-train_index_80,]
+
+dt_model_80 <- C5.0(x = train_80[, predictors], y = train_80$loan_status)
+dt_pred_80 <- predict(dt_model_80, newdata = test_80)
+dt_results_80 <- data.frame(actual = test_80[, 'loan_status'], predicted = dt_pred_80)
+
+print("--- 80/20 Baseline Decision Tree Confusion Matrix ---")
+cm_80 <- table(dt_results_80)
+print(cm_80)
+export_cm_plot(cm_80, "80/20 Split: Confusion Matrix (Baseline)", "6_CM_80_20_Split.png")
+
+dt_results_80$correct <- ifelse(dt_results_80$actual == dt_results_80$predicted, 1, 0)
+dt_accuracy_80 <- sum(dt_results_80$correct) / nrow(dt_results_80)
+cat("80/20 Decision Tree Accuracy: ", dt_accuracy_80, "\n\n")
+
+# --- 70/30 OPTIMIZED MODEL ---
+set.seed(650)
+sample_size_70 <- floor(0.7 * nrow(loan_data))
+train_index_70 <- sample(nrow(loan_data), size = sample_size_70, replace = FALSE)
+train_70 <- loan_data[train_index_70,]
+test_70 <- loan_data[-train_index_70,]
+
+dt_model_70 <- C5.0(x = train_70[, predictors], y = train_70$loan_status)
+dt_pred_70 <- predict(dt_model_70, newdata = test_70)
+dt_results_70 <- data.frame(actual = test_70[, 'loan_status'], predicted = dt_pred_70)
+
+print("--- 70/30 Optimized Decision Tree Confusion Matrix ---")
+cm_70 <- table(dt_results_70)
+print(cm_70)
+export_cm_plot(cm_70, "70/30 Split: Confusion Matrix", "7_CM_70_30_Split.png")
+
+dt_results_70$correct <- ifelse(dt_results_70$actual == dt_results_70$predicted, 1, 0)
+dt_accuracy_70 <- sum(dt_results_70$correct) / nrow(dt_results_70)
+cat("70/30 Decision Tree Accuracy: ", dt_accuracy_70, "\n\n")
+
+# ------------------------------------------------------------------------------
+# 6. Business Value (Profit/Loss Comparison)
+# ------------------------------------------------------------------------------
+# Calculate Financials for 90/10
+fp_90 <- test_90[dt_results_90$predicted == "Approved" & dt_results_90$actual == "Rejected", ]
+money_lost_90 <- sum(fp_90$loan_amnt, na.rm = TRUE)
+tn_90 <- test_90[dt_results_90$predicted == "Rejected" & dt_results_90$actual == "Rejected", ]
+money_saved_90 <- sum(tn_90$loan_amnt, na.rm = TRUE)
+fn_90 <- test_90[dt_results_90$predicted == "Rejected" & dt_results_90$actual == "Approved", ]
+missed_rev_90 <- sum(fn_90$loan_amnt * (fn_90$loan_int_rate / 100), na.rm = TRUE)
+
+# Calculate Financials for 80/20
+fp_80 <- test_80[dt_results_80$predicted == "Approved" & dt_results_80$actual == "Rejected", ]
+money_lost_80 <- sum(fp_80$loan_amnt, na.rm = TRUE)
+tn_80 <- test_80[dt_results_80$predicted == "Rejected" & dt_results_80$actual == "Rejected", ]
+money_saved_80 <- sum(tn_80$loan_amnt, na.rm = TRUE)
+fn_80 <- test_80[dt_results_80$predicted == "Rejected" & dt_results_80$actual == "Approved", ]
+missed_rev_80 <- sum(fn_80$loan_amnt * (fn_80$loan_int_rate / 100), na.rm = TRUE)
+
+# Calculate Financials for 70/30
+fp_70 <- test_70[dt_results_70$predicted == "Approved" & dt_results_70$actual == "Rejected", ]
+money_lost_70 <- sum(fp_70$loan_amnt, na.rm = TRUE)
+tn_70 <- test_70[dt_results_70$predicted == "Rejected" & dt_results_70$actual == "Rejected", ]
+money_saved_70 <- sum(tn_70$loan_amnt, na.rm = TRUE)
+fn_70 <- test_70[dt_results_70$predicted == "Rejected" & dt_results_70$actual == "Approved", ]
+missed_rev_70 <- sum(fn_70$loan_amnt * (fn_70$loan_int_rate / 100), na.rm = TRUE)
+
+cat("--- Business Value / Financial Impact Comparison ---\n")
+cat("[ 90/10 Split Model ]\n")
+cat("Principal Lost (False Positives): $", formatC(money_lost_90, format="f", digits=2, big.mark=","), "\n")
+cat("Principal Saved (True Negatives): $", formatC(money_saved_90, format="f", digits=2, big.mark=","), "\n")
+cat("Missed Revenue (False Negatives): $", formatC(missed_rev_90, format="f", digits=2, big.mark=","), "\n\n")
+
+cat("[ 80/20 Baseline Model ]\n")
+cat("Principal Lost (False Positives): $", formatC(money_lost_80, format="f", digits=2, big.mark=","), "\n")
+cat("Principal Saved (True Negatives): $", formatC(money_saved_80, format="f", digits=2, big.mark=","), "\n")
+cat("Missed Revenue (False Negatives): $", formatC(missed_rev_80, format="f", digits=2, big.mark=","), "\n\n")
+
+cat("[ 70/30 Optimized Model ]\n")
+cat("Principal Lost (False Positives): $", formatC(money_lost_70, format="f", digits=2, big.mark=","), "\n")
+cat("Principal Saved (True Negatives): $", formatC(money_saved_70, format="f", digits=2, big.mark=","), "\n")
+cat("Missed Revenue (False Negatives): $", formatC(missed_rev_70, format="f", digits=2, big.mark=","), "\n\n")
+
+# ------------------------------------------------------------------------------
+# 7. Feature Importance 
+# ------------------------------------------------------------------------------
+print("--- C5.0 Decision Tree Feature Importance (80/20 Tuned Baseline Model) ---")
+imp_scores <- C5imp(dt_model_80)
+print(imp_scores)
+
+# Filter for features that actually contributed (Importance > 0)
+imp_data <- imp_scores[imp_scores$Overall > 0, , drop = FALSE]
+# Sort ascending so the most important feature is at the top of the horizontal plot
+imp_data <- imp_data[order(imp_data$Overall), , drop = FALSE]
+
+# Export visually appealing Feature Importance bar chart
+png("8_Feature_Importance_C50.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+
+# Increase left margin to ensure long variable names fit
+par(mar = c(5, 14, 4, 2), col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+
+barplot(imp_data$Overall, 
+        names.arg = rownames(imp_data), 
+        horiz = TRUE, 
+        las = 1,          # Make the y-axis labels horizontal
+        col = "#22c3ab",  # Custom Cyan color for the bars
+        border = "#3c414c",
+        main = "Feature Importance (80/20 Decision Tree)", 
+        xlab = "Importance Score (0 - 100)")
+
+dev.off()
+print("--- Finished ---")

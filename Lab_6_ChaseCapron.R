@@ -11,7 +11,7 @@ data(iris)
 iris1 <- subset(iris, Species != "setosa")
 
 # Check the levels of Species in Iris2
-levels(iris$Species)
+levels(iris1$Species)
 # [1] "setosa"     "versicolor" "virginica" 
 
 # Remove the unused "Setosa" level and keep only versicolor and verginica
