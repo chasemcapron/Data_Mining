@@ -191,21 +191,21 @@ dt_results_90$correct <- ifelse(dt_results_90$actual == dt_results_90$predicted,
 dt_accuracy_90 <- sum(dt_results_90$correct) / nrow(dt_results_90)
 cat("90/10 Decision Tree Accuracy: ", dt_accuracy_90, "\n\n")
 
-# --- 80/20 BASELINE MODEL ---
+# --- 80/20 TUNED CHAMPION MODEL ---
 set.seed(650)
 sample_size_80 <- floor(0.8 * nrow(loan_data))
 train_index_80 <- sample(nrow(loan_data), size = sample_size_80, replace = FALSE)
 train_80 <- loan_data[train_index_80,]
 test_80 <- loan_data[-train_index_80,]
 
-dt_model_80 <- C5.0(x = train_80[, predictors], y = train_80$loan_status)
+dt_model_80 <- C5.0(x = train_80[, predictors], y = train_80$loan_status, control = C5.0Control(minCases = 20, CF = 0.25))
 dt_pred_80 <- predict(dt_model_80, newdata = test_80)
 dt_results_80 <- data.frame(actual = test_80[, 'loan_status'], predicted = dt_pred_80)
 
-print("--- 80/20 Baseline Decision Tree Confusion Matrix ---")
+print("--- 80/20 Decision Tree Confusion Matrix ---")
 cm_80 <- table(dt_results_80)
 print(cm_80)
-export_cm_plot(cm_80, "80/20 Split: Confusion Matrix (Baseline)", "6_CM_80_20_Split.png")
+export_cm_plot(cm_80, "80/20 Split: Confusion Matrix", "6_CM_80_20_Split.png")
 
 dt_results_80$correct <- ifelse(dt_results_80$actual == dt_results_80$predicted, 1, 0)
 dt_accuracy_80 <- sum(dt_results_80$correct) / nrow(dt_results_80)
@@ -264,7 +264,7 @@ cat("Principal Lost (False Positives): $", formatC(money_lost_90, format="f", di
 cat("Principal Saved (True Negatives): $", formatC(money_saved_90, format="f", digits=2, big.mark=","), "\n")
 cat("Missed Revenue (False Negatives): $", formatC(missed_rev_90, format="f", digits=2, big.mark=","), "\n\n")
 
-cat("[ 80/20 Baseline Model ]\n")
+cat("[ 80/20 Tuned Champion Model ]\n")
 cat("Principal Lost (False Positives): $", formatC(money_lost_80, format="f", digits=2, big.mark=","), "\n")
 cat("Principal Saved (True Negatives): $", formatC(money_saved_80, format="f", digits=2, big.mark=","), "\n")
 cat("Missed Revenue (False Negatives): $", formatC(missed_rev_80, format="f", digits=2, big.mark=","), "\n\n")
@@ -277,7 +277,7 @@ cat("Missed Revenue (False Negatives): $", formatC(missed_rev_70, format="f", di
 # ------------------------------------------------------------------------------
 # 7. Feature Importance 
 # ------------------------------------------------------------------------------
-print("--- C5.0 Decision Tree Feature Importance (80/20 Tuned Baseline Model) ---")
+print("--- C5.0 Decision Tree Feature Importance ---")
 imp_scores <- C5imp(dt_model_80)
 print(imp_scores)
 
@@ -298,8 +298,25 @@ barplot(imp_data$Overall,
         las = 1,          # Make the y-axis labels horizontal
         col = "#22c3ab",  # Custom Cyan color for the bars
         border = "#3c414c",
-        main = "Feature Importance (80/20 Decision Tree)", 
+        main = "Feature Importance (80/20)", 
         xlab = "Importance Score (0 - 100)")
 
 dev.off()
-print("--- Finished ---")
+
+# ------------------------------------------------------------------------------
+# 8. Visualizing a "Presentation-Ready" Simplified Decision Tree
+# ------------------------------------------------------------------------------
+print("--- Exporting Simplified Decision Tree Visualization ---")
+
+# Train a highly restricted tree JUST for visual presentation
+# minCases = 2000 forces the tree to only draw the biggest, most important rules
+dt_model_simple <- C5.0(x = train_80[, predictors], 
+                        y = train_80$loan_status, 
+                        control = C5.0Control(minCases = 2000))
+
+# Export the clean, simple tree (Standard HD slide dimensions)
+png("10_Decision_Tree_Simple.png", bg = "#ffffff", width = 1600, height = 900, res = 120)
+plot(dt_model_simple, main = "Core Logic Engine: Simplified Loan Approval Tree")
+dev.off()
+
+print("--- Simple Tree Visualization Exported ---")
