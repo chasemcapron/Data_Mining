@@ -7,6 +7,7 @@
 # ------------------------------------------------------------------------------
 # 1. Install and Load Required Packages
 # ------------------------------------------------------------------------------
+# install.packages("C50") # Uncomment if you need to install it
 library(C50)
 
 # ------------------------------------------------------------------------------
@@ -85,24 +86,120 @@ run_dt_experiments <- function(data, split_ratio, min_cases = 2, cf = 0.25, runs
   cat("----------------------------------------------------------\n")
 }
 
-cat("\n\n*** REQUIREMENT 1: INITIAL MODEL (80-20 SPLIT) ***")
+cat("\n\n*** REQUIREMENT 1 & 2: VARY TRAINING-TEST RATIOS ***")
 run_dt_experiments(loan_data, split_ratio = 0.80)
-
-cat("\n\n*** REQUIREMENT 2: VARY TRAINING-TEST RATIOS ***")
 run_dt_experiments(loan_data, split_ratio = 0.70)
 run_dt_experiments(loan_data, split_ratio = 0.90)
 
-cat("\n\n*** REQUIREMENT 3: COMPREHENSIVE PARAMETER TUNING (All Splits) ***")
-# We test all parameter variations across every single split to ensure a perfectly fair comparison!
-splits_to_test <- c(0.80, 0.70, 0.90)
+# ==============================================================================
+# REQUIREMENT 3: PARAMETER TUNING GRID SEARCH
+# ==============================================================================
+cat("\n\n*** REQUIREMENT 3: COMPREHENSIVE PARAMETER TUNING (Grid Search) ***\n")
+cat("Testing combinations of minCases (20, 50, 100) and CF (0.1, 0.25, 0.5) on 80/20 Split...\n\n")
 
-for (split_val in splits_to_test) {
-  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 20)
-  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 50)
-  run_dt_experiments(loan_data, split_ratio = split_val, min_cases = 100)
-  run_dt_experiments(loan_data, split_ratio = split_val, cf = 0.1)
-  run_dt_experiments(loan_data, split_ratio = split_val, cf = 0.5)
+min_cases_grid <- c(20, 50, 100)
+cf_grid <- c(0.1, 0.25, 0.5)
+split_ratio <- 0.80 # Using 80/20 as the baseline control for testing parameters
+
+tuning_results <- data.frame(minCases=numeric(), CF=numeric(), 
+                             Avg_Accuracy=numeric(), Best_Accuracy=numeric(), 
+                             False_Positives=numeric(), stringsAsFactors=FALSE)
+
+for (mc in min_cases_grid) {
+  for (cf_val in cf_grid) {
+    accuracies <- numeric(10)
+    best_acc <- 0
+    fp_for_best_run <- 0
+    
+    for(i in 1:10) {
+      sample_size <- floor(split_ratio * nrow(loan_data))
+      train_ind <- sample(nrow(loan_data), size = sample_size, replace = FALSE)
+      train <- loan_data[train_ind, ]
+      test <- loan_data[-train_ind, ]
+      predictors <- setdiff(names(train), "loan_status")
+      
+      # Build Model with specific grid parameters
+      model <- C5.0(x = train[, predictors], y = train$loan_status, 
+                    control = C5.0Control(minCases = mc, CF = cf_val))
+      preds <- predict(model, test)
+      
+      # Metrics calculation
+      acc <- sum(preds == test$loan_status) / nrow(test)
+      accuracies[i] <- acc
+      cm <- table(Actual = test$loan_status, Predicted = preds)
+      
+      # Extract False Positives securely (Actual = Rejected, Predicted = Approved)
+      fp <- 0
+      if("Rejected" %in% rownames(cm) && "Approved" %in% colnames(cm)) {
+        fp <- cm["Rejected", "Approved"]
+      }
+      
+      # Track the configuration of the best run (highest accuracy)
+      if(acc > best_acc) {
+        best_acc <- acc
+        fp_for_best_run <- fp
+      }
+    }
+    
+    # Save the aggregated results for this combination
+    tuning_results <- rbind(tuning_results, data.frame(
+      minCases = mc,
+      CF = cf_val,
+      Avg_Accuracy = round(mean(accuracies) * 100, 2),
+      Best_Accuracy = round(best_acc * 100, 2),
+      False_Positives = fp_for_best_run
+    ))
+    
+    cat(sprintf("Done: minCases = %3d | CF = %.2f | Avg Acc: %5.2f%% | False Positives (Risk): %d\n", 
+                mc, cf_val, round(mean(accuracies)*100, 2), fp_for_best_run))
+  }
 }
+
+print("\n--- Deliverable: Parameter Tuning Findings ---")
+print(tuning_results)
+
+# ------------------------------------------------------------------------------
+# Exporting the Parameter Tuning Results (Styled Table)
+# ------------------------------------------------------------------------------
+# Determine the optimal index (lowest FPs to mitigate risk, then highest accuracy)
+best_idx <- order(tuning_results$False_Positives, -tuning_results$Avg_Accuracy)[1]
+
+png("4b_Parameter_Tuning_Table.png", bg = "#3c414c", width = 1000, height = 650, res = 120)
+par(mar = c(1, 1, 4, 1), bg = "#3c414c")
+plot(c(0, 10), c(0, 10), type = "n", axes = FALSE, xlab = "", ylab = "", 
+     main = "Parameter Tuning Results (80/20 Split)", col.main = "#ffffff", cex.main = 1.8)
+
+# Table Headers (Removed Peak Accuracy and rebalanced columns)
+cols <- c(1, 3.5, 6, 8.5)
+headers <- c("minCases", "CF", "Avg Accuracy", "Risk (False Positives)")
+text(cols, 9.5, headers, col = "#22c3ab", font = 2, cex = 1.1)
+segments(0, 9.2, 10, 9.2, col = "#ffffff", lwd = 2)
+
+# Plot each row
+y_pos <- seq(8.5, 0.5, length.out = nrow(tuning_results))
+
+for(i in 1:nrow(tuning_results)) {
+  r <- tuning_results[i, ]
+  y <- y_pos[i]
+  is_best <- (i == best_idx)
+  
+  # Highlight the best row with a subtle background and cyan border
+  if(is_best) {
+    rect(0, y - 0.4, 10, y + 0.4, col = "#4a505c", border = "#22c3ab", lwd = 2)
+    text(0.4, y, "★", col = "#22c3ab", cex = 1.5, font = 2)
+  }
+  
+  text(cols[1], y, r$minCases, col = "#ffffff", cex = 1.2, font = ifelse(is_best, 2, 1))
+  text(cols[2], y, r$CF, col = "#ffffff", cex = 1.2, font = ifelse(is_best, 2, 1))
+  text(cols[3], y, paste0(r$Avg_Accuracy, "%"), col = "#ffffff", cex = 1.2, font = ifelse(is_best, 2, 1))
+  
+  # Color the false positives red to indicate risk, white if it's the winning model
+  fp_color <- ifelse(is_best, "#ffffff", "#ff6363")
+  text(cols[4], y, r$False_Positives, col = fp_color, cex = 1.2, font = 2)
+}
+dev.off()
+cat("-> Exported styled results table to '4b_Parameter_Tuning_Table.png'.\n")
+
 
 # ==============================================================================
 # 4b. PRESENTATION SLIDE EXPORT: Best Runs Summary Table
@@ -131,7 +228,6 @@ for(i in 1:3) {
   text(cols[2], y_pos[i], plot_data$minCases[i], col = "#ffffff", cex = 1.3)
   text(cols[3], y_pos[i], plot_data$CF[i], col = "#ffffff", cex = 1.3)
   text(cols[4], y_pos[i], paste0(plot_data$Avg_Acc[i], "%"), col = "#ffffff", cex = 1.3)
-  # Highlight the absolute best peak run overall in red
   text(cols[5], y_pos[i], paste0(plot_data$Best_Acc[i], "%"), col = ifelse(i==1, "#ff6363", "#ffffff"), font = ifelse(i==1, 2, 1), cex = 1.3)
 }
 dev.off()
@@ -281,40 +377,22 @@ print("--- C5.0 Decision Tree Feature Importance ---")
 imp_scores <- C5imp(dt_model_80)
 print(imp_scores)
 
-# Filter for features that actually contributed (Importance > 0)
 imp_data <- imp_scores[imp_scores$Overall > 0, , drop = FALSE]
-# Sort ascending so the most important feature is at the top of the horizontal plot
 imp_data <- imp_data[order(imp_data$Overall), , drop = FALSE]
 
-# Export visually appealing Feature Importance bar chart
 png("8_Feature_Importance_C50.png", bg = "#3c414c", width = 800, height = 600, res = 120)
-
-# Increase left margin to ensure long variable names fit
 par(mar = c(5, 14, 4, 2), col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
-
-barplot(imp_data$Overall, 
-        names.arg = rownames(imp_data), 
-        horiz = TRUE, 
-        las = 1,          # Make the y-axis labels horizontal
-        col = "#22c3ab",  # Custom Cyan color for the bars
-        border = "#3c414c",
-        main = "Feature Importance (80/20)", 
-        xlab = "Importance Score (0 - 100)")
-
+barplot(imp_data$Overall, names.arg = rownames(imp_data), horiz = TRUE, las = 1, col = "#22c3ab", 
+        border = "#3c414c", main = "Feature Importance (80/20)", xlab = "Importance Score (0 - 100)")
 dev.off()
 
 # ------------------------------------------------------------------------------
 # 8. Visualizing a "Presentation-Ready" Simplified Decision Tree
 # ------------------------------------------------------------------------------
 print("--- Exporting Simplified Decision Tree Visualization ---")
-
-# Train a highly restricted tree JUST for visual presentation
-# minCases = 2000 forces the tree to only draw the biggest, most important rules
-dt_model_simple <- C5.0(x = train_80[, predictors], 
-                        y = train_80$loan_status, 
+dt_model_simple <- C5.0(x = train_80[, predictors], y = train_80$loan_status, 
                         control = C5.0Control(minCases = 2000))
 
-# Export the clean, simple tree (Standard HD slide dimensions)
 png("10_Decision_Tree_Simple.png", bg = "#ffffff", width = 1600, height = 900, res = 120)
 plot(dt_model_simple, main = "Core Logic Engine: Simplified Loan Approval Tree")
 dev.off()
