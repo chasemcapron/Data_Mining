@@ -1,0 +1,211 @@
+# ==============================================================================
+# ISTM 650 Project Stage 2: Individual Exploration
+# Dataset: Synthetic Data for binary classification on Loan Approval (Kaggle)
+# Method: Random Forest Algorithm (Addressing Stage 1 Feedback)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Install and Load Required Packages
+# ------------------------------------------------------------------------------
+# install.packages(c("randomForest", "caret", "e1071", "psych", "dplyr"))
+library(randomForest)
+library(caret)    # For stratified sampling and confusion matrix
+library(psych)    # For comprehensive descriptive statistics
+library(dplyr)    # For data manipulation
+
+# ------------------------------------------------------------------------------
+# 2. Set Working Directory & Data Loading
+# ------------------------------------------------------------------------------
+setwd("C:/Users/chase/OneDrive/Documents/Desktop Materials/Classes/Spring '26/Bus Data Mining/R Files")
+loan_data <- read.csv('loan_data.csv', stringsAsFactors = TRUE)
+
+# Factor target variable
+loan_data$loan_status <- factor(loan_data$loan_status, levels = c(0, 1), labels = c("Rejected", "Approved"))
+
+# ------------------------------------------------------------------------------
+# 3. Data Preprocessing & Feedback Integration
+# ------------------------------------------------------------------------------
+print("--- PRE-PROCESSING: Descriptive Statistics (BEFORE) ---")
+# Feedback: "Include a comprehensive descriptive statistics table"
+numeric_cols <- sapply(loan_data, is.numeric)
+desc_stats_before <- describe(loan_data[, numeric_cols])
+print(desc_stats_before)
+write.csv(desc_stats_before, "Desc_Stats_Before.csv")
+
+print("--- PRE-PROCESSING: Missing Data Analysis ---")
+# Feedback: "Document all preprocessing steps... including missing data analysis"
+missing_summary <- colSums(is.na(loan_data))
+print(missing_summary)
+loan_data <- loan_data[complete.cases(loan_data),] # Removing NAs for simplicity, document this in report
+
+print("--- PRE-PROCESSING: Outlier Treatment ---")
+# Feedback: "address these through appropriate outlier removal or treatment strategies"
+# We will use Winsorization (capping) to treat outliers without losing data rows.
+cap_outliers <- function(x) {
+  if(is.numeric(x)) {
+    qnt <- quantile(x, probs=c(.25, .75), na.rm = TRUE)
+    caps <- quantile(x, probs=c(.05, .95), na.rm = TRUE) # Cap at 5th and 95th percentiles
+    H <- 1.5 * IQR(x, na.rm = TRUE)
+    x[x < (qnt[1] - H)] <- caps[1]
+    x[x > (qnt[2] + H)] <- caps[2]
+  }
+  return(x)
+}
+
+# Apply outlier treatment to specific numerical columns known to have high variance
+cols_to_cap <- c("person_income", "loan_amnt", "person_emp_exp")
+loan_data[cols_to_cap] <- lapply(loan_data[cols_to_cap], cap_outliers)
+
+print("--- PRE-PROCESSING: Descriptive Statistics (AFTER) ---")
+desc_stats_after <- describe(loan_data[, numeric_cols])
+write.csv(desc_stats_after, "Desc_Stats_After_Outlier_Treatment.csv")
+
+# ------------------------------------------------------------------------------
+# 4. Addressing Class Imbalance & Train/Test Splits
+# ------------------------------------------------------------------------------
+print("--- DATA SPLITTING: Stratified Sampling & Multiple Ratios ---")
+# Feedback: "Address the imbalance... Consider techniques such as stratified sampling."
+# Feedback: "experiment with more training-test ratio, such as 75-25 and 70-30"
+
+set.seed(123)
+# Using caret's createDataPartition ensures Stratified Sampling (maintains class ratios)
+train_idx_80 <- createDataPartition(loan_data$loan_status, p = 0.80, list = FALSE)
+train_idx_75 <- createDataPartition(loan_data$loan_status, p = 0.75, list = FALSE)
+train_idx_70 <- createDataPartition(loan_data$loan_status, p = 0.70, list = FALSE)
+
+# We will focus on the 70/30 split for the main model, but you can swap these out
+train_data_70 <- loan_data[train_idx_70, ]
+test_data_30 <- loan_data[-train_idx_70, ]
+
+print(paste("Class distribution in 70% Training Set:"))
+print(prop.table(table(train_data_70$loan_status)))
+
+# ------------------------------------------------------------------------------
+# 5. Algorithm Implementation: Random Forest Configuration
+# ------------------------------------------------------------------------------
+print("--- MODEL TRAINING: Random Forest (Addressing mincases/complexity) ---")
+# Feedback: "try setting mincases > 100 to prevent overfitting"
+# In Random Forest, 'nodesize' acts like 'mincases' in C5.0. 
+
+# Model 1: Default parameters
+rf_model_default <- randomForest(loan_status ~ ., 
+                                 data = train_data_70, 
+                                 ntree = 100, 
+                                 importance = TRUE)
+
+# Model 2: Tuning nodesize (mincases) to prevent overfitting on leaf nodes
+rf_model_tuned <- randomForest(loan_status ~ ., 
+                               data = train_data_70, 
+                               ntree = 200,          # Increased trees for stability
+                               nodesize = 100,       # Minimum size of terminal nodes (Professor's suggestion)
+                               importance = TRUE)
+
+# ------------------------------------------------------------------------------
+# 6. Evaluation & Results (Testing Multiple Splits & Financial Impact)
+# ------------------------------------------------------------------------------
+print("--- MODEL EVALUATION: Comparing Splits ---")
+# Feedback: "assess how different splits affect performance stability"
+
+# Quick function to train and evaluate so we can compare the splits
+evaluate_split <- function(train_idx, split_name) {
+  train_set <- loan_data[train_idx, ]
+  test_set <- loan_data[-train_idx, ]
+  
+  # Train with tuned parameters
+  model <- randomForest(loan_status ~ ., data = train_set, ntree = 200, nodesize = 100)
+  preds <- predict(model, test_set)
+  cm <- confusionMatrix(preds, test_set$loan_status, positive = "Approved")
+  
+  print(paste("Accuracy for", split_name, "Split:", round(cm$overall['Accuracy'], 4)))
+  return(cm)
+}
+
+cm_80 <- evaluate_split(train_idx_80, "80/20")
+cm_75 <- evaluate_split(train_idx_75, "75/25")
+cm_70 <- evaluate_split(train_idx_70, "70/30")
+
+print("--- DETAILED CONFUSION MATRIX (70/30 Split) ---")
+print(cm_70)
+
+print("--- FINANCIAL IMPACT ESTIMATION ---")
+# Feedback: "Financial Impact Analysis Lacks Detail"
+# We will simulate a basic financial calculation based on the 70/30 test set matrix.
+# Assumptions for your report methodology:
+# 1. Avg Loan Amount = $10,000. 
+# 2. False Positive (Approving a default) = Lose principal ($10,000)
+# 3. False Negative (Rejecting a good loan) = Lose interest (e.g., 10% of 10k = $1,000)
+
+FP <- cm_70$table["Approved", "Rejected"] # Model predicted Approved, actual Rejected
+FN <- cm_70$table["Rejected", "Approved"] # Model predicted Rejected, actual Approved
+
+cost_FP <- FP * 10000
+cost_FN <- FN * 1000
+
+print(paste("Total False Positives in 30% Test Set:", FP, "-> Estimated Loss: $", format(cost_FP, scientific=FALSE)))
+print(paste("Total False Negatives in 30% Test Set:", FN, "-> Estimated Opportunity Cost: $", format(cost_FN, scientific=FALSE)))
+print(paste("Total Financial Error Cost for Model: $", format(cost_FP + cost_FN, scientific=FALSE)))
+
+# ------------------------------------------------------------------------------
+# 7. Feature Importance Visualization
+# ------------------------------------------------------------------------------
+print("--- VIEWING AND EXPORTING FEATURE IMPORTANCE ---")
+
+# Set global par parameters for the RStudio plot to match the original style
+par(bg = "#3c414c", col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+
+# 1. This displays the plot directly in your R/RStudio Plots pane
+varImpPlot(rf_model_tuned, 
+           type = 2, 
+           main = "Random Forest Feature Importance (Nodesize=100)",
+           col = "#22c3ab", 
+           pch = 19)
+
+# 2. This quietly saves a high-quality copy to your working directory
+png("Stage2_RF_Feature_Importance_Tuned.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+# Re-apply par within the png device
+par(bg = "#3c414c", col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+varImpPlot(rf_model_tuned, 
+           type = 2, 
+           main = "RF Feature Importance (Nodesize=100)",
+           col = "#22c3ab", 
+           pch = 19)
+dev.off()
+
+# ------------------------------------------------------------------------------
+# 8. Additional Visualizations (Error Rate, Partial Dependence, ROC)
+# ------------------------------------------------------------------------------
+print("--- GENERATING ADDITIONAL VISUALIZATIONS ---")
+
+# 1. Error Rate vs. Number of Trees Plot
+png("Stage2_RF_Error_Rate.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(bg = "#3c414c", col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+plot(rf_model_tuned, main = "RF Error Rate vs. Number of Trees", 
+     col = c("white", "#22c3ab", "#ff6b6b"), lwd = 2)
+legend("topright", legend = c("Out of Bag Error", "Approved Error", "Rejected Error"), 
+       col = c("white", "#22c3ab", "#ff6b6b"), lty = 1, lwd = 2, text.col = "white")
+dev.off()
+
+# 2. Partial Dependence Plot
+png("Stage2_RF_Partial_Dependence.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(bg = "#3c414c", col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+partialPlot(rf_model_tuned, train_data_70, x.var = "loan_percent_income", 
+            which.class = "Approved",
+            main = "RF Partial Dependence: % of Income",
+            xlab = "Loan Percent of Income", ylab = "Effect on Approval Probability",
+            col = "#22c3ab", lwd = 3)
+dev.off()
+
+# 3. ROC Curve Visualization
+# install.packages("pROC") # Make sure you have this installed!
+library(pROC)
+rf_probs <- predict(rf_model_tuned, test_data_30, type = "prob")
+roc_curve <- roc(test_data_30$loan_status, rf_probs[, "Approved"])
+
+png("Stage2_RF_ROC_Curve.png", bg = "#3c414c", width = 800, height = 600, res = 120)
+par(bg = "#3c414c", col.axis = "#ffffff", col.lab = "#ffffff", col.main = "#ffffff", fg = "#ffffff")
+plot(roc_curve, main = paste("RF ROC Curve (AUC = ", round(auc(roc_curve), 3), ")", sep=""), 
+     col = "#22c3ab", lwd = 3, print.auc = FALSE)
+dev.off()
+
+print("Script Complete. Check working directory for CSV stats and all PNG plots.")
+print("====================================================================")

@@ -1,5 +1,7 @@
 # Lab 8 - Chase Capron
 
+setwd("C:/Users/chase/OneDrive/Documents/Desktop Materials/Classes/Spring '26/Bus Data Mining/R Files")
+
 # Install packages
 install.packages("arules")
 install.packages("arulesViz", dependencies = TRUE)
